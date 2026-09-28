@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>اختار بحثك</title>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;800&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.js"></script>
+<style>
+:root{--bg:#faf8f3;--navy:#12233f;--ink:#111;--line:#dfdfe0;--ok:#27834b;--bad:#d83d3d;--wait:#d99b19;--card:#fff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Cairo,Tajawal,sans-serif;line-height:1.7}
+main{max-width:980px;margin:auto;padding:20px 16px 60px;animation:in .25s}
+@keyframes in{from{opacity:0}to{opacity:1}}
+h1,h2{color:var(--navy);margin:.3em 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:20px;box-shadow:0 2px 10px #0001;margin:14px 0}
+.btn{display:inline-block;background:var(--navy);color:#fff;border:0;border-radius:10px;padding:13px 22px;font:600 1rem Cairo;cursor:pointer;text-decoration:none;min-height:46px}
+.btn.red{background:var(--bad)}.btn.ghost{background:none;color:var(--navy);border:1px solid var(--navy)}.btn.sm{padding:6px 12px;min-height:0;font-size:.85rem}
+.btn:disabled{opacity:.5}
+input,select,textarea{width:100%;padding:12px;border:1px solid var(--line);border-radius:10px;font:1rem Cairo;background:#fff;margin:4px 0 14px}
+label{font-weight:600}
+.hero{text-align:center;padding:30px 0 6px}.hero h1{font-size:2.8rem;font-weight:800;margin:0}
+.by{font-size:.8rem;color:#666;text-align:left}
+.choices{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.choice{text-align:center;cursor:pointer;font-size:1.2rem;font-weight:800;color:var(--navy);transition:.2s}
+.choice:hover{transform:translateY(-4px);box-shadow:0 8px 22px #0002}.choice i{font-size:2.6rem;display:block;font-style:normal}
+.badge{padding:2px 10px;border-radius:99px;color:#fff;font-size:.85rem;font-weight:600}
+.pending{background:var(--wait)}.accepted{background:var(--ok)}.rejected{background:var(--bad)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.stat b{display:block;font-size:1.8rem;color:var(--navy)}
+.tabs{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+.tabs .btn{background:#fff;color:var(--navy);border:1px solid var(--navy)}.tabs .btn.on{background:var(--navy);color:#fff}
+table{width:100%;border-collapse:collapse;background:#fff}th,td{padding:9px;border-bottom:1px solid var(--line);text-align:right;font-size:.9rem}
+th{background:var(--navy);color:#fff}
+.code{font-size:3rem;font-weight:800;letter-spacing:10px;color:var(--navy);text-align:center}
+.warn{background:#fff6dc;border:1px solid var(--wait);border-radius:10px;padding:12px}
+#toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);z-index:9;display:grid;gap:8px}
+#toast div{color:#fff;padding:12px 20px;border-radius:10px;box-shadow:0 4px 14px #0004}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;justify-content:space-between}
+.spin{display:inline-block;width:16px;height:16px;border:3px solid #fff5;border-top-color:#fff;border-radius:50%;animation:r .7s linear infinite;vertical-align:middle}
+@keyframes r{to{transform:rotate(360deg)}}
+@media(max-width:700px){.choices{grid-template-columns:1fr}.hero h1{font-size:2.1rem}
+ table,tbody,tr,td{display:block}thead{display:none}
+ tr{background:#fff;border:1px solid var(--line);border-radius:12px;margin:10px 0;padding:6px}
+ td{border:0;display:flex;justify-content:space-between;gap:10px}td::before{content:attr(data-l);font-weight:600;color:var(--navy)}}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<main id="app"></main>
+<div id="toast"></div>
+<script>
+// ===== الإعداد: ضع رابط مشروع Supabase ومفتاح anon العام (ليس service_role) =====
+const CFG={url:'YOUR_SUPABASE_URL',key:'YOUR_SUPABASE_ANON_KEY'};
+const sb=window.supabase.createClient(CFG.url,CFG.key);
+const app=document.getElementById('app');
+const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const fmt=d=>new Date(d).toLocaleString('ar-EG',{timeZone:'Africa/Cairo',dateStyle:'medium',timeStyle:'medium'});
+const digits=s=>s.replace(/[٠-٩]/g,d=>'٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/\D/g,'');
+const ST={pending:'قيد المراجعة',accepted:'مقبول',rejected:'مرفوض'};
+const badge=s=>`<span class="badge ${s}">${ST[s]}</span>`;
+function toast(m,t='ok'){const d=document.createElement('div');d.textContent=m;d.style.background=t=='ok'?'#27834b':'#d83d3d';
+ document.getElementById('toast').append(d);setTimeout(()=>d.remove(),3800)}
+async function rpc(fn,a){const {data,error}=await sb.rpc(fn,a);if(error)throw new Error(error.message);return data}
+async function run(btn,fn){const t=btn.innerHTML;btn.disabled=true;btn.innerHTML='<span class="spin"></span>';
+ try{await fn()}catch(e){toast(e.message,'bad')}finally{btn.disabled=false;btn.innerHTML=t}}
+const $=s=>app.querySelector(s);
+const back=(h='#/')=>`<a class="btn ghost sm" href="${h}">رجوع</a> <a class="btn ghost sm" href="#/">الرئيسية</a>`;
+let tok=sessionStorage.getItem('tok'),role=sessionStorage.getItem('role'),draft=null;
+
+const V={},B={};
+V.home=()=>`<div class="hero"><h1>اختار بحثك</h1><div class="by">من إعداد محمد نور</div></div>
+<div class="card"><b>📘 تعليمات</b><p>أهلاً وسهلاً بيكم يا شباب، ده موقع بسيط عشان تختار منه البحث بتاعك وميكونش مكرر مع حد تاني. كل اللي مطلوب منك وانت بتسجل تكتب اسمك رباعي صح ورقم مجموعتك ورقم تليفونك اللي عليه الواتساب وعنوان البحث اللي هتكتب عنه.</p></div>
+<div class="choices"><a class="card choice" href="#/new" style="text-decoration:none"><i>📝</i>عايز أعمل طلب اختيار بحث</a>
+<a class="card choice" href="#/track" style="text-decoration:none"><i>🔎</i>متابعة الطلب</a></div>
+<div class="card" style="text-align:center;margin-top:40px"><p>لوحة تحكم لازم تكون ليدر!!</p><a class="btn" href="#/leader-login">أنا ليدر</a></div>`;
+
+V.new=()=>{const d=draft||{};draft=null;return `${back()}<h2>تقديم طلب اختيار بحث</h2><div class="card">
+<label>الاسم الرباعي</label><input id="n" value="${esc(d.name)}" ${d.name?'readonly':''} autocomplete="name">
+<label>رقم المجموعة</label><select id="g" ${d.grp?'disabled':''}><option value="">اختر المجموعة</option>${[1,2,3,4,5,6].map(i=>`<option ${d.grp==i?'selected':''}>${i}</option>`).join('')}</select>
+<label>رقم الهاتف (واتساب)</label><input id="p" inputmode="numeric" maxlength="14" placeholder="01xxxxxxxxx" value="${esc(d.phone)}" ${d.phone?'readonly':''}>
+<label>عنوان البحث</label><textarea id="t" rows="3" placeholder="اكتب عنوان البحث بالعربية أو الإنجليزية"></textarea>
+<button class="btn" id="go" style="width:100%">تقديم الطلب</button></div>`};
+B.new=()=>{const p=$('#p');p.oninput=()=>p.value=digits(p.value);
+ $('#go').onclick=e=>run(e.target,async()=>{
+  const n=$('#n').value.trim(),g=+$('#g').value,ph=digits(p.value),t=$('#t').value.trim();
+  if(n.split(/\s+/).length<4)throw Error('اكتب اسمك رباعيًا (4 أسماء على الأقل)');
+  if(!g)throw Error('اختر رقم المجموعة');
+  if(!/^(0|20|0020)?1[0125]\d{8}$/.test(ph))throw Error('رقم الهاتف غير صحيح');
+  if(t.split(/\s+/).length<3)throw Error('عنوان البحث قصير، اكتب 3 كلمات على الأقل');
+  const r=await rpc('submit_request',{n,g,p:ph,t});
+  app.innerHTML=`<div class="card"><h2>تم تقديم طلبك بنجاح ✅</h2><p>تم تقديم طلبك بنجاح، برجاء الاحتفاظ بالكود الخاص بك لمتابعة حالة الطلب.</p>
+  <div class="card code" id="cd">${esc(r.code)}</div><button class="btn" id="cp">نسخ الكود</button> <a class="btn ghost" href="#/">الرئيسية</a></div>`;
+  $('#cp').onclick=()=>navigator.clipboard.writeText(r.code).then(()=>toast('تم نسخ الكود'));toast('تم تقديم الطلب بنجاح')})};
+
+V.track=()=>`${back()}<h2>متابعة حالة طلبك</h2>
+<div class="card"><label>كود الطلب (4 أرقام)</label><input id="c" inputmode="numeric" maxlength="4"><button class="btn" id="b1">استعلام عن الطلب</button></div>
+<div class="card"><label>رقم الهاتف</label><input id="ph" inputmode="numeric" maxlength="14"><button class="btn" id="b2">استعلام برقم الهاتف</button></div><div id="res"></div>`;
+B.track=()=>{const c=$('#c'),ph=$('#ph');c.oninput=()=>c.value=digits(c.value);ph.oninput=()=>ph.value=digits(ph.value);
+ const q=(btn,v,ok)=>run(btn,async()=>{if(!ok(v))throw Error(ok==isCode?'كود المتابعة غير صحيح':'رقم الهاتف غير صحيح');
+  const rows=await rpc('track',{q:v});if(!rows.length)throw Error('لا يوجد طلب بهذه البيانات');
+  $('#res').innerHTML=rows.map(r=>`<div class="card"><div class="row"><b>${esc(r.name)}</b>${badge(r.status)}</div>
+  <p>المجموعة: ${r.grp} — الهاتف: ${esc(r.phone)}<br>العنوان: ${esc(r.title)}<br>التاريخ: ${fmt(r.at)}</p>
+  ${r.status=='pending'?'<p>الطلب قيد المراجعة</p>':''}
+  ${r.status=='rejected'?`<div class="warn">نعتذر، لم تتم الموافقة على عنوان البحث الخاص بك. يمكنك اختيار موضوع آخر وتقديم طلب جديد.<br><br><button class="btn" data-ch='${esc(JSON.stringify({name:r.name,grp:r.grp,phone:r.phone_full}))}'>هغير الموضوع</button></div>`:''}</div>`).join('');
+  app.querySelectorAll('[data-ch]').forEach(b=>b.onclick=()=>toast('اكتب رقم هاتفك كاملًا في الصفحة التالية','ok')||go('#/new',{name:rows.find(x=>x.status=='rejected').name,grp:rows.find(x=>x.status=='rejected').grp,phone:''}))});
+ const isCode=v=>/^\d{4}$/.test(v),isPh=v=>/^(0|20|0020)?1[0125]\d{8}$/.test(v);
+ $('#b1').onclick=e=>q(e.target,c.value,isCode);$('#b2').onclick=e=>q(e.target,ph.value,isPh)};
+
+const loginView=m=>`${back()}<div class="card" style="max-width:420px;margin:30px auto"><h2>${m?'لوحة تحكم محمد نور':'تسجيل دخول الليدر'}</h2>
+<label>${m?'الكود':'كود الليدر'}</label><input id="u" dir="ltr" autocomplete="username"><label>كلمة المرور</label><input id="pw" type="password" dir="ltr" autocomplete="current-password">
+<button class="btn" id="go" style="width:100%">تسجيل الدخول</button></div>`;
+const loginBind=m=>{$('#go').onclick=e=>run(e.target,async()=>{
+ const r=await rpc('admin_login',{u:$('#u').value.trim(),p:$('#pw').value,is_master:m});
+ tok=r.token;role=r.role;sessionStorage.setItem('tok',tok);sessionStorage.setItem('role',role);go(m?'#/master':'#/leader')})};
+V['leader-login']=()=>loginView(false);B['leader-login']=()=>loginBind(false);
+V['master-login']=()=>loginView(true);B['master-login']=()=>loginBind(true);
+async function logout(){try{await rpc('admin_logout',{tok})}catch{}sessionStorage.clear();tok=role=null;go('#/')}
+
+let rows=[],flt='all',qs='',desc=false;
+V.leader=()=>`<div class="row"><h2>لوحة تحكم الليدر</h2><span>${back()} <button class="btn sm red" id="lo">تسجيل الخروج</button></span></div>
+<div class="stats" id="st"></div>
+<div class="tabs" id="tb">${[['all','جميع الطلبات'],['pending','لم تتم مراجعتها'],['rejected','المرفوضة'],['accepted','المقبولة'],['sim','فلترة الطلبات المتشابهة']].map(([k,l])=>`<button class="btn sm" data-k="${k}">${l}</button>`).join('')}</div>
+<div id="bd"></div><div class="card" style="text-align:center"><a class="btn ghost" href="#/master-login">لوحة تحكم محمد نور</a></div>`;
+B.leader=async()=>{$('#lo').onclick=logout;
+ $('#tb').onclick=e=>{if(e.target.dataset.k){flt=e.target.dataset.k;draw()}};
+ try{rows=await rpc('admin_list',{tok})}catch(e){toast(e.message,'bad');return go('#/leader-login')}draw()};
+function draw(){
+ const c=s=>rows.filter(r=>r.status==s).length;
+ $('#st').innerHTML=[['إجمالي الطلبات',rows.length],['قيد المراجعة',c('pending')],['المقبولة',c('accepted')],['المرفوضة',c('rejected')],['المتشابهة','—']].map(([l,n])=>`<div class="card stat"><b>${n}</b>${l}</div>`).join('');
+ document.querySelectorAll('#tb .btn').forEach(b=>b.classList.toggle('on',b.dataset.k==flt));
+ if(flt=='sim')return $('#bd').innerHTML=`<div class="warn"><b>تحليل التشابه غير متاح حتى يتم ربط خدمة الذكاء الاصطناعي بالخادم.</b><br>لا يتم عرض أي نتائج وهمية. عند الربط ستكون النتيجة اقتراحًا للمراجعة فقط والقرار النهائي لليدر.</div>`;
+ let l=rows.filter(r=>flt=='all'||r.status==flt).filter(r=>[r.full_name,r.title,r.phone].join(' ').includes(qs));
+ if(desc)l=[...l].reverse();
+ $('#bd').innerHTML=`<div class="row"><input id="s" placeholder="بحث بالاسم أو العنوان أو الهاتف" value="${esc(qs)}" style="flex:1"><button class="btn sm" id="so">ترتيب: ${desc?'الأحدث أولًا':'الأقدم أولًا'}</button></div>
+ ${l.length?`<table><thead><tr>${['#','الاسم','عنوان البحث','المجموعة','الهاتف','التاريخ والوقت','الحالة','الإجراءات'].map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>
+ ${l.map((r,i)=>`<tr><td data-l="#">${i+1}</td><td data-l="الاسم">${esc(r.full_name)}</td><td data-l="العنوان">${esc(r.title)}</td><td data-l="المجموعة">${r.grp}</td>
+ <td data-l="الهاتف" dir="ltr">${esc(r.phone)}</td><td data-l="التسجيل">${fmt(r.created_at)}</td><td data-l="الحالة">${badge(r.status)}</td>
+ <td data-l="إجراء">${r.status!='accepted'?`<button class="btn sm" data-a="accepted" data-i="${r.id}">${r.status=='rejected'?'تعديل الحالة':'قبول'}</button> `:''}${r.status!='rejected'?`<button class="btn sm red" data-a="rejected" data-i="${r.id}">${r.status=='accepted'?'تعديل الحالة':'رفض'}</button>`:''}</td></tr>`).join('')}</tbody></table>`
+ :'<div class="card" style="text-align:center">لا توجد طلبات في هذا القسم</div>'}`;
+ const s=$('#s');if(s){s.oninput=()=>{qs=s.value;const p=s.selectionStart;draw();$('#s').focus();$('#s').setSelectionRange(p,p)};$('#so').onclick=()=>{desc=!desc;draw()}}
+ app.querySelectorAll('[data-a]').forEach(b=>b.onclick=()=>run(b,async()=>{const st=b.dataset.a,r=rows.find(x=>x.id==b.dataset.i);
+  if(!confirm(`تغيير حالة طلب «${r.full_name}» إلى ${ST[st]}؟`))return;
+  const note=st=='rejected'?prompt('سبب الرفض (اختياري)','تشابه مع بحث سبق تسجيله'):null;
+  await rpc('admin_set',{tok,rid:r.id,st,note});toast('تم تعديل حالة الطلب بنجاح');rows=await rpc('admin_list',{tok});draw()}))}
+
+V.master=()=>`<div class="row"><h2>لوحة تحكم محمد نور</h2><span>${back()} <a class="btn sm ghost" href="#/leader">لوحة الليدر</a> <button class="btn sm red" id="lo">تسجيل الخروج</button></span></div>
+<div class="card"><h2>إعادة ضبط الموقع</h2><p>تسمح لك هذه الخاصية بمسح جميع الطلبات المسجلة وإعادة استخدام الموقع لمادة دراسية جديدة.</p><button class="btn red" id="rs">مسح جميع الطلبات</button></div>`;
+B.master=()=>{if(role!='master'){toast('غير مصرح لك','bad');return go('#/master-login')}$('#lo').onclick=logout;
+ $('#rs').onclick=e=>run(e.target,async()=>{
+  if(!confirm('تحذير: سيتم حذف جميع الطلبات المسجلة، بما في ذلك الطلبات المقبولة والمرفوضة والطلبات قيد المراجعة، وسجلات المراجعة المرتبطة بها. لا يمكن التراجع عن هذه العملية.'))return;
+  if(prompt('اكتب كلمة «مسح» للتأكيد')!=='مسح')throw Error('لم يتم التأكيد');
+  const pw=prompt('أعد إدخال كلمة المرور');if(!pw)return;
+  await rpc('admin_reset',{tok,pw});toast('تمت إعادة ضبط الموقع بنجاح، ويمكنك الآن استخدامه لمادة دراسية جديدة.')})};
+
+function go(h,d){draft=d||null;if(location.hash==h)route();else location.hash=h}
+function route(){const k=location.hash.replace('#/','')||'home';
+ if((k=='leader'||k=='master')&&!tok){location.hash=k=='master'?'#/master-login':'#/leader-login';return}
+ if(!V[k])return go('#/');app.innerHTML=V[k]();B[k]&&B[k]();scrollTo(0,0)}
+addEventListener('hashchange',route);route();
+</script>
+</body>
+</html>
